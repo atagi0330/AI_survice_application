@@ -1,0 +1,26 @@
+# Python virtual environment
+backend/.venv/
+**/.venv/
+*.pyc
+__pycache__/
+
+# Node modules
+node_modules/
+frontend/node_modules/
+
+# Environment variables
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+*.egg-info/
