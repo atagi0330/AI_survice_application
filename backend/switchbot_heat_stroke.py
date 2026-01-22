@@ -47,10 +47,9 @@ def calc_metrics(temp, hum):
     wbgt = 0.567 * temp + 0.393 * e + 3.94
         
     alert = "安全"
-    if wbgt >= 31: alert = "【危険】熱中症の危険性が高いです！今すぐに休憩と水分補給を！"
-    elif wbgt >= 28: alert = "【厳重警戒】体調に気を付けて適度な休憩を取ってください！"
-    elif wbgt >= 25: alert = "【警戒】エアコンをつけて下さい"
-    elif wbgt >= 21: alert = "異常なし"
+    if wbgt >= 35: alert = "【危険】熱中症の危険性が高いです！今すぐに休憩と水分補給を！"
+    elif wbgt >= 30: alert = "【注意】体調に気を付けて適度な休憩を取ってください！"
+    elif wbgt <= 29: alert = "【通常】"
     return {"abs_hum": abs_hum, "vpd": vpd, "wbgt": wbgt, "alert": alert}
 
 # ------------------------------------------
