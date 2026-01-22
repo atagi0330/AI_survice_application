@@ -19,20 +19,30 @@ function recommendations(temp: number, logs: LogItem[], persons: Person[]): stri
     rec.push('温度が高いので社員を休憩させるか、水分を取らせる必要があります。')
   }
 
-  // Focus risk heuristic: any recent FOCUS log
-  const hasFocus = logs.some(l => l.kind === 'FOCUS')
-  if (hasFocus) {
-    rec.push('集中力が低下している可能性がある社員がいます。気を付けて下さい。')
+  // 異常が起きている場合は「誰か」を出す（ログ優先、なければ緊急ステータスから推定）
+  const uniq = (xs: string[]) => Array.from(new Set(xs)).filter(Boolean)
+
+  const fallNamesFromLogs = logs.filter(l => l.kind === 'FALL').map(l => l.person_name)
+  const focusNamesFromLogs = logs.filter(l => l.kind === 'FOCUS').map(l => l.person_name)
+
+  const fallNamesFromPersons = persons.filter(p => (p.emergency_status ?? '').includes('転倒')).map(p => p.name)
+  const focusNamesFromPersons = persons.filter(p => (p.emergency_status ?? '').includes('集中')).map(p => p.name)
+
+  const fallNames = uniq([...fallNamesFromLogs, ...fallNamesFromPersons])
+  const focusNames = uniq([...focusNamesFromLogs, ...focusNamesFromPersons])
+
+  if (focusNames.length > 0) {
+    rec.push(`集中力が低下している可能性がある社員がいます（${focusNames.join('、')}）。気を付けて下さい。`)
   }
 
-  const hasFall = logs.some(l => l.kind === 'FALL')
-  if (hasFall) {
-    rec.push('転倒を検知しました。すぐに社員のもとへ向かい確認を行ってください。')
+  if (fallNames.length > 0) {
+    rec.push(`転倒を検知しました（${fallNames.join('、')}）。すぐに社員のもとへ向かい確認を行ってください。`)
   }
 
   if (rec.length === 0) rec.push('現時点で緊急の推奨行動はありません。')
   return rec
 }
+
 
 function PhotoBox({ person, onClick }: { person: Person; onClick: () => void }) {
   const src = person.photo_url ?? null
