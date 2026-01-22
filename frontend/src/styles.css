@@ -1,0 +1,148 @@
+:root{
+  --bg:#f5f6f7;
+  --card:#ffffff;
+  --border:#d6d6d6;
+  --text:#111;
+  --muted:#666;
+  --shadow: 0 1px 2px rgba(0,0,0,.08);
+  --green:#cfead2;
+  --yellow:#fff1b8;
+  --red:#ffd0d0;
+}
+
+*{ box-sizing:border-box; }
+body{ margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans JP", "Hiragino Sans", "Yu Gothic", sans-serif; background:var(--bg); color:var(--text); }
+button{ font: inherit; }
+
+.page{ padding:22px; max-width: 1200px; margin: 0 auto; }
+.title{ font-size:22px; font-weight:700; margin-bottom:16px; }
+
+.layout{ display:grid; grid-template-columns: 280px 1fr; gap:16px; align-items:start; }
+
+.leftCol{ display:flex; flex-direction:column; gap:14px; }
+.rightCol{ display:flex; flex-direction:column; gap:18px; }
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding:12px;
+}
+
+.cardLabel{ font-size:14px; color: var(--muted); margin-bottom:6px; }
+.bigValue{ font-size:26px; font-weight:800; }
+.smallNote{ margin-top:4px; font-size:12px; color: var(--muted); }
+
+.tempCard.normal{ background: var(--green); }
+.tempCard.caution{ background: var(--yellow); }
+.tempCard.danger{ background: var(--red); }
+
+.grow{ min-height: 170px; }
+.recList{ margin: 0; padding-left: 18px; line-height: 1.5; }
+.muted{ color: var(--muted); font-size: 12px; }
+
+.logCard{ max-height: 240px; overflow:auto; }
+.logList{ display:flex; flex-direction:column; gap:8px; }
+.logRow{
+  border:1px solid var(--border);
+  background:#fff;
+  text-align:left;
+  padding:10px;
+  cursor:pointer;
+}
+.logRow:hover{ outline:2px solid rgba(0,0,0,.08); }
+.logMsg{ font-size:13px; line-height: 1.3; }
+.logRow.fall{ border-left: 6px solid #d00000; }
+.logRow.focus{ border-left: 6px solid #c28a00; }
+.logRow.info{ border-left: 6px solid #2c6f9b; }
+
+.area{
+  background:#e6e6e6;
+  border:1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding:12px;
+  min-height: 200px;
+}
+.areaTitle{ font-weight:700; margin-bottom:10px; }
+.peopleRow{ display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start; }
+
+.personCard{
+  width: 200px;
+  background:#fff;
+  border:1px solid var(--border);
+  padding:10px;
+}
+.personName{ text-align:center; font-weight:700; margin-bottom:8px; }
+
+.photoBtn{
+  width:100%;
+  border:1px solid var(--border);
+  background:#dff3e4;
+  height: 92px;
+  cursor:pointer;
+  padding:0;
+}
+.photoBtn:hover{ outline:2px solid rgba(0,0,0,.08); }
+.photoPlaceholder{ display:flex; align-items:center; justify-content:center; height:100%; font-weight:700; color:#0d5a21; }
+.photoImg{ width:100%; height:100%; object-fit:cover; display:block; }
+
+.personMeta{ margin-top:8px; font-size:12px; color:#333; line-height:1.4; }
+
+/* Compact area B slots */
+.peopleRow.compact{ gap: 20px; }
+.miniSlot{ width: 90px; height: 90px; display:flex; align-items:center; justify-content:center; }
+.miniPhoto{
+  width: 80px; height: 80px;
+  border:1px solid var(--border);
+  background:#dff3e4;
+  cursor:pointer;
+}
+.miniText{ font-weight:700; color:#0d5a21; }
+
+/* Modal */
+.modalOverlay{
+  position:fixed; inset:0;
+  background: rgba(0,0,0,.35);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:18px;
+}
+.modal{
+  width: min(900px, 96vw);
+  max-height: 90vh;
+  overflow:auto;
+  background:#fff;
+  border:1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0,0,0,.2);
+}
+.modalHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:12px;
+  border-bottom:1px solid var(--border);
+}
+.modalTitle{ font-weight:800; }
+.modalBody{ padding:12px; }
+
+.btn{
+  border:1px solid var(--border);
+  background:#f3f3f3;
+  padding:8px 10px;
+  cursor:pointer;
+}
+.btn:hover{ outline:2px solid rgba(0,0,0,.08); }
+
+.logDetailMsg{ font-weight:700; margin-bottom:10px; }
+.snapWrap{
+  border:1px solid var(--border);
+  background:#fafafa;
+  padding:10px;
+}
+.snapImg{ width:100%; height:auto; display:block; }
+.snapPlaceholder{
+  height: 240px;
+  display:flex; align-items:center; justify-content:center;
+  color: var(--muted);
+}
