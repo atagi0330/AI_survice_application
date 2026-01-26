@@ -107,7 +107,6 @@ def load_known_faces(app, directory="face_db"):
         img_org = imread_safe(file_path)
         if img_org is None: continue
         
-        # 自動回転ロジック
         found = False
         img_temp = img_org.copy()
         for _ in range(4):
@@ -132,19 +131,17 @@ def save_snapshot_task(frame, mode):
         os.makedirs(save_dir, exist_ok=True)
         filename = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3] + ".jpg"
         cv2.imwrite(os.path.join(save_dir, filename), frame)
-        # 古いファイル削除
         if mode == "normal":
             files = sorted(glob.glob(os.path.join(save_dir, "*.jpg")))
             if len(files) > config.NORMAL_MAX_FILES:
                 try: os.remove(files[0])
                 except: pass
     except: pass
-
 # ==========================================
 # メイン処理
 # ==========================================
 def main():
-    print("=== AI統合システム (顔認証 + 転倒検知) 起動 ===")
+    print("=== AI統合システム (人物特定リンク版) 起動 ===")
 
     # 1. InsightFace 初期化
     print("Initialize InsightFace...")
@@ -161,13 +158,11 @@ def main():
     print(f"Initialize YOLO Pose ({config.POSE_MODEL_PATH})...")
     model_path = config.POSE_MODEL_PATH
     if not os.path.exists(model_path):
-        model_path = "yolov8n-pose.pt" # Fallback
+        model_path = "yolo26m-pose.pt" # Fallback
     yolo_model = YOLO(model_path)
     yolo_model.to(config.DEVICE)
 
     # 4. カメラ初期化
-    # ★重要: ここでカメラIDを指定 (0 または 1)
-    # 映らない場合はここを 1 に変えてください
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) 
     if not cap.isOpened():
         cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
@@ -176,8 +171,10 @@ def main():
         print("エラー: カメラが見つかりません。接続を確認してください。")
         return
 
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    # 画質設定 (640x480で動作安定化)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cap.set(cv2.CAP_PROP_FPS, 30)
 
     # 状態管理
     pose_people_states = {} 
@@ -189,22 +186,69 @@ def main():
     last_normal_save = time.time()
     last_alert_save = 0
 
+    # フルスクリーン設定
+    window_name = 'Integrated AI Monitor'
+    cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
     print("=== システム稼働開始 (終了は 'q' キー) ===")
 
     try:
         while True:
             ret, frame = cap.read()
-            if not ret: break
+            
+            # カメラ再接続ロジック
+            if not ret:
+                print("⚠️ 映像信号ロスト。再接続を試みます...")
+                cap.release()
+                time.sleep(2)
+                cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+                if not cap.isOpened():
+                    cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                continue
             
             current_time = time.time()
             h, w, _ = frame.shape
-            
-            # 結果を描画するメイン画像
             annotated_frame = frame.copy()
             trigger_alert_save = False
 
             # ---------------------------------------------------------
-            # [A] YOLO Pose (転倒・ふらつき・姿勢)
+            # [Step 1] 先に顔認識を行って「名前と位置」を特定する
+            # ---------------------------------------------------------
+            faces = app.get(frame)
+            
+            # 今回のフレームで見つかった顔のリスト (名前, 顔の中心X, 顔の中心Y)
+            detected_faces_info = []
+
+            for face in faces:
+                # 顔認証 (名前特定)
+                name = "Unknown"
+                if len(known_feats) > 0:
+                    max_sim = 0
+                    for k_idx, k_feat in enumerate(known_feats):
+                        sim = compute_sim(face.embedding, k_feat)
+                        if sim > max_sim:
+                            max_sim = sim
+                            if max_sim > REC_THRESHOLD:
+                                name = known_names[k_idx]
+                
+                # 顔の中心座標を計算
+                bbox = face.bbox.astype(int)
+                cx = (bbox[0] + bbox[2]) / 2
+                cy = (bbox[1] + bbox[3]) / 2
+                
+                # リストに保存 (後でYOLOと紐付けるため)
+                detected_faces_info.append({
+                    "name": name,
+                    "center": (cx, cy),
+                    "bbox": bbox,
+                    "face_data": face # 後の居眠り解析でも使う
+                })
+
+            # ---------------------------------------------------------
+            # [Step 2] YOLO Pose (転倒・ふらつき) + 名前紐付け
             # ---------------------------------------------------------
             results = yolo_model.track(frame, persist=True, verbose=False, device=config.DEVICE, classes=[0])
 
@@ -223,7 +267,17 @@ def main():
                     box = boxes_all[i]
                     x1, y1, x2, y2 = box.astype(int)
 
-                    # 判定ロジック (features.py)
+                    # ★ 名前紐付けロジック
+                    # この全身枠(x1,y1,x2,y2)の中に、顔の中心が入っているかチェック
+                    matched_name = ""
+                    for face_info in detected_faces_info:
+                        fcx, fcy = face_info["center"]
+                        # 顔の中心が、全身ボックスの中にあれば「その人」とみなす
+                        if x1 < fcx < x2 and y1 < fcy < y2:
+                            matched_name = face_info["name"]
+                            break # 1人見つかればOK
+
+                    # 判定ロジック
                     is_pose_fall = features.check_fall_pose(kpts, box)
                     is_bad_posture_now = features.check_bad_posture(kpts)
                     is_stagger_now = features.check_staggering(kpts, state)
@@ -231,38 +285,32 @@ def main():
                     state.update_status(is_pose_fall, is_stagger_now, is_bad_posture_now)
                     if state.alert_active: trigger_alert_save = True
 
-                    # 描画 (全身枠)
+                    # 描画
                     color = state.status_color
-                    # 枠線
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                    # ラベル背景
-                    label = f"ID:{track_id} {state.action_message}"
+                    
+                    # ラベル作成: "ID:1 Riku Normal" のように名前を入れる
+                    label_parts = [f"ID:{track_id}"]
+                    if matched_name and matched_name != "Unknown":
+                        label_parts.append(matched_name) # 名前があれば追加
+                    label_parts.append(state.action_message)
+                    
+                    label = " ".join(label_parts)
+
                     (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
                     cv2.rectangle(annotated_frame, (x1, y1 - 25), (x1 + tw, y1), color, -1)
-                    # テキスト
                     cv2.putText(annotated_frame, label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
             # ---------------------------------------------------------
-            # [B] 顔認識 & 居眠り検知
+            # [Step 3] 顔認識 & 居眠り検知 (詳細表示)
             # ---------------------------------------------------------
-            faces = app.get(frame)
-            for face in faces:
-                bbox = face.bbox.astype(int)
-                embedding = face.embedding
+            # さっき検出した detected_faces_info を使う (再検出不要)
+            for face_info in detected_faces_info:
+                name = face_info["name"]
+                bbox = face_info["bbox"]
                 
-                # 1. 顔認証
-                detected_name = "Unknown"
-                max_sim = 0
-                if len(known_feats) > 0:
-                    for k_idx, k_feat in enumerate(known_feats):
-                        sim = compute_sim(embedding, k_feat)
-                        if sim > max_sim:
-                            max_sim = sim
-                            if max_sim > REC_THRESHOLD:
-                                detected_name = known_names[k_idx]
-
-                # 2. 顔トラッキング (簡易距離マッチング)
-                cx, cy = (bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2
+                # トラッキング (簡易距離マッチング)
+                cx, cy = face_info["center"]
                 matched_id = None
                 min_dist = 200
                 for pid, p in face_people_states.items():
@@ -281,11 +329,10 @@ def main():
                 person = face_people_states[matched_id]
                 person.last_seen = current_time
                 person.bbox = bbox
-                if detected_name != "Unknown": person.name = detected_name
+                if name != "Unknown": person.name = name
 
-                # 3. MediaPipe 居眠り詳細解析
+                # 居眠り詳細解析 (MediaPipe)
                 bx1, by1, bx2, by2 = bbox
-                # 顔領域を少し広げてクロップ
                 margin = int((bx2-bx1)*0.2)
                 cx1, cy1 = max(0, bx1-margin), max(0, by1-margin)
                 cx2, cy2 = min(w, bx2+margin), min(h, by2+margin)
@@ -306,7 +353,6 @@ def main():
                         person.mar_buffer.append(raw_mar)
                         person.nose_y_buffer.append(pts[IDX_NOSE][1])
 
-                        # ステータス判定
                         if len(person.ear_buffer) == SMOOTHING_WINDOW:
                             avg_ear = sum(person.ear_buffer)/SMOOTHING_WINDOW
                             
@@ -334,23 +380,17 @@ def main():
                                 else:
                                     person.utouto_start = None
                         
-                        # 描画 (顔枠 & 情報)
                         f_color = (0,255,0)
                         if person.status == "danger": f_color = (0,0,255)
                         elif person.status == "warning": f_color = (0,165,255)
                         
-                        # 顔枠
+                        # 顔枠の描画 (もしYOLOと重なって邪魔ならここをコメントアウトしてもOK)
                         cv2.rectangle(annotated_frame, (bx1, by1), (bx2, by2), f_color, 2)
-                        # 名前と状態
                         info_text = f"{person.name} {person.msg}"
                         cv2.putText(annotated_frame, info_text, (bx1, by2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, f_color, 2)
-                        
-                        # 目のランドマーク (オプション)
-                        for idx in IDX_L_EYE + IDX_R_EYE:
-                            cv2.circle(annotated_frame, tuple(pts[idx]), 1, (255, 255, 0), -1)
 
             # ---------------------------------------------------------
-            # [C] 記録 & 表示
+            # [Step 4] 記録 & 表示
             # ---------------------------------------------------------
             if trigger_alert_save:
                 if current_time - last_alert_save > config.ALERT_INTERVAL:
@@ -362,13 +402,16 @@ def main():
                     last_normal_save = current_time
 
             # メモリ掃除
-            pose_garbage = [i for i,t in pose_last_seen.items() if current_time - t > 60]
-            for i in pose_garbage: del pose_people_states[i]
-            face_garbage = [i for i,p in face_people_states.items() if current_time - p.last_seen > 5]
-            for i in face_garbage: del face_people_states[i]
+            pose_garbage = [i for i, t in pose_last_seen.items() if current_time - t > 60]
+            for i in pose_garbage:
+                if i in pose_people_states: del pose_people_states[i]
+                del pose_last_seen[i]
 
-            # 画面表示
-            cv2.imshow('Integrated AI Monitor (Face & Body)', annotated_frame)
+            face_garbage = [i for i, p in face_people_states.items() if current_time - p.last_seen > 5]
+            for i in face_garbage:
+                if i in face_people_states: del face_people_states[i]
+
+            cv2.imshow(window_name, annotated_frame)
 
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
@@ -377,8 +420,7 @@ def main():
         traceback.print_exc()
     finally:
         save_executor.shutdown(wait=False)
-        cap.release()
+        if 'cap' in locals() and cap.isOpened(): cap.release()
         cv2.destroyAllWindows()
-
 if __name__ == "__main__":
     main()
