@@ -131,17 +131,24 @@ def save_snapshot_task(frame, mode):
         os.makedirs(save_dir, exist_ok=True)
         filename = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")[:-3] + ".jpg"
         cv2.imwrite(os.path.join(save_dir, filename), frame)
-        if mode == "normal":
-            files = sorted(glob.glob(os.path.join(save_dir, "*.jpg")))
-            if len(files) > config.NORMAL_MAX_FILES:
-                try: os.remove(files[0])
-                except: pass
+
+        # ★ 修正: モードに関係なく、50枚を超えたら古いものを消す
+        files = sorted(glob.glob(os.path.join(save_dir, "*.jpg")))
+        MAX_FILES = 50 
+        
+        # 50枚を超える分だけ、古い順に削除する
+        while len(files) > MAX_FILES:
+            try: 
+                os.remove(files[0]) # 一番古いファイルを削除
+                files.pop(0)        # リストからも削除
+            except: 
+                break
     except: pass
 # ==========================================
 # メイン処理
 # ==========================================
 def main():
-    print("=== AI統合システム (人物特定リンク版) 起動 ===")
+    print("=== AI統合システム (異常時のみ記録版) 起動 ===")
 
     # 1. InsightFace 初期化
     print("Initialize InsightFace...")
@@ -158,7 +165,7 @@ def main():
     print(f"Initialize YOLO Pose ({config.POSE_MODEL_PATH})...")
     model_path = config.POSE_MODEL_PATH
     if not os.path.exists(model_path):
-        model_path = "yolo26m-pose.pt" # Fallback
+        model_path = "yolov8n-pose.pt" # Fallback
     yolo_model = YOLO(model_path)
     yolo_model.to(config.DEVICE)
 
@@ -183,8 +190,8 @@ def main():
     face_people_states = {}
     face_next_id = 0
 
-    last_normal_save = time.time()
     last_alert_save = 0
+    # last_normal_save = time.time()  <-- 通常保存用のタイマーは不要になったので削除
 
     # フルスクリーン設定
     window_name = 'Integrated AI Monitor'
@@ -205,8 +212,8 @@ def main():
                 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
                 if not cap.isOpened():
                     cap = cv2.VideoCapture(1, cv2.CAP_DSHOW)
-                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
                 continue
             
             current_time = time.time()
@@ -215,15 +222,12 @@ def main():
             trigger_alert_save = False
 
             # ---------------------------------------------------------
-            # [Step 1] 先に顔認識を行って「名前と位置」を特定する
+            # [Step 1] 顔認識
             # ---------------------------------------------------------
             faces = app.get(frame)
-            
-            # 今回のフレームで見つかった顔のリスト (名前, 顔の中心X, 顔の中心Y)
             detected_faces_info = []
 
             for face in faces:
-                # 顔認証 (名前特定)
                 name = "Unknown"
                 if len(known_feats) > 0:
                     max_sim = 0
@@ -234,21 +238,17 @@ def main():
                             if max_sim > REC_THRESHOLD:
                                 name = known_names[k_idx]
                 
-                # 顔の中心座標を計算
                 bbox = face.bbox.astype(int)
                 cx = (bbox[0] + bbox[2]) / 2
                 cy = (bbox[1] + bbox[3]) / 2
-                
-                # リストに保存 (後でYOLOと紐付けるため)
                 detected_faces_info.append({
                     "name": name,
                     "center": (cx, cy),
-                    "bbox": bbox,
-                    "face_data": face # 後の居眠り解析でも使う
+                    "bbox": bbox
                 })
 
             # ---------------------------------------------------------
-            # [Step 2] YOLO Pose (転倒・ふらつき) + 名前紐付け
+            # [Step 2] YOLO Pose (転倒・ふらつき)
             # ---------------------------------------------------------
             results = yolo_model.track(frame, persist=True, verbose=False, device=config.DEVICE, classes=[0])
 
@@ -267,15 +267,13 @@ def main():
                     box = boxes_all[i]
                     x1, y1, x2, y2 = box.astype(int)
 
-                    # ★ 名前紐付けロジック
-                    # この全身枠(x1,y1,x2,y2)の中に、顔の中心が入っているかチェック
+                    # 名前紐付け
                     matched_name = ""
                     for face_info in detected_faces_info:
                         fcx, fcy = face_info["center"]
-                        # 顔の中心が、全身ボックスの中にあれば「その人」とみなす
                         if x1 < fcx < x2 and y1 < fcy < y2:
                             matched_name = face_info["name"]
-                            break # 1人見つかればOK
+                            break
 
                     # 判定ロジック
                     is_pose_fall = features.check_fall_pose(kpts, box)
@@ -289,12 +287,10 @@ def main():
                     color = state.status_color
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
                     
-                    # ラベル作成: "ID:1 Riku Normal" のように名前を入れる
                     label_parts = [f"ID:{track_id}"]
                     if matched_name and matched_name != "Unknown":
-                        label_parts.append(matched_name) # 名前があれば追加
+                        label_parts.append(matched_name)
                     label_parts.append(state.action_message)
-                    
                     label = " ".join(label_parts)
 
                     (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 1)
@@ -302,15 +298,13 @@ def main():
                     cv2.putText(annotated_frame, label, (x1, y1 - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
 
             # ---------------------------------------------------------
-            # [Step 3] 顔認識 & 居眠り検知 (詳細表示)
+            # [Step 3] 居眠り検知
             # ---------------------------------------------------------
-            # さっき検出した detected_faces_info を使う (再検出不要)
             for face_info in detected_faces_info:
                 name = face_info["name"]
                 bbox = face_info["bbox"]
-                
-                # トラッキング (簡易距離マッチング)
                 cx, cy = face_info["center"]
+                
                 matched_id = None
                 min_dist = 200
                 for pid, p in face_people_states.items():
@@ -331,7 +325,7 @@ def main():
                 person.bbox = bbox
                 if name != "Unknown": person.name = name
 
-                # 居眠り詳細解析 (MediaPipe)
+                # MediaPipe解析
                 bx1, by1, bx2, by2 = bbox
                 margin = int((bx2-bx1)*0.2)
                 cx1, cy1 = max(0, bx1-margin), max(0, by1-margin)
@@ -380,26 +374,27 @@ def main():
                                 else:
                                     person.utouto_start = None
                         
+                        # アラートがあれば保存フラグを立てる
+                        if person.status != "normal":
+                            trigger_alert_save = True
+
                         f_color = (0,255,0)
                         if person.status == "danger": f_color = (0,0,255)
                         elif person.status == "warning": f_color = (0,165,255)
                         
-                        # 顔枠の描画 (もしYOLOと重なって邪魔ならここをコメントアウトしてもOK)
-                        cv2.rectangle(annotated_frame, (bx1, by1), (bx2, by2), f_color, 2)
                         info_text = f"{person.name} {person.msg}"
                         cv2.putText(annotated_frame, info_text, (bx1, by2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, f_color, 2)
 
             # ---------------------------------------------------------
-            # [Step 4] 記録 & 表示
+            # [Step 4] 記録 & 表示 (★修正箇所)
             # ---------------------------------------------------------
             if trigger_alert_save:
+                # 異常時のみ保存する
                 if current_time - last_alert_save > config.ALERT_INTERVAL:
                     save_executor.submit(save_snapshot_task, annotated_frame.copy(), "alert")
                     last_alert_save = current_time
-            else:
-                if current_time - last_normal_save > config.NORMAL_INTERVAL:
-                    save_executor.submit(save_snapshot_task, annotated_frame.copy(), "normal")
-                    last_normal_save = current_time
+            
+            # ★ 以前あった else: ブロック(通常保存)を削除しました
 
             # メモリ掃除
             pose_garbage = [i for i, t in pose_last_seen.items() if current_time - t > 60]

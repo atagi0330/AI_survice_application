@@ -55,6 +55,5 @@ KEYPOINT_CONF_TH = 0.3
 
 # 画像保存設定
 LOG_DIR = "logs"
-NORMAL_INTERVAL = 60  # 通常時の保存間隔(秒)
 ALERT_INTERVAL = 2    # 異常時の保存間隔(秒)
 NORMAL_MAX_FILES = 50
