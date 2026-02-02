@@ -1,85 +1,91 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { getAllLogs, getPersonLogs, getState } from './api'
 import type { LogItem, Person, StateResponse } from './types'
+import { apiBase, getLogs, getPersonLogs, getState, resolveSnapshotUrl } from './api'
 import Modal from './components/Modal'
 
-function tempLevel(temp: number): 'normal' | 'caution' | 'danger' {
-  if (temp < 30) return 'normal'
-  if (temp < 35) return 'caution'
+function uniq(xs: string[]) { return Array.from(new Set(xs)).filter(Boolean) }
+
+function tempLevel(t: number) {
+  if (t < 30) return 'normal'
+  if (t < 35) return 'caution'
   return 'danger'
 }
 
-function recommendations(temp: number, logs: LogItem[], persons: Person[]): string[] {
+function tempBg(t: number) {
+  const lvl = tempLevel(t)
+  if (lvl === 'normal') return 'tempNormal'
+  if (lvl === 'caution') return 'tempCaution'
+  return 'tempDanger'
+}
+
+function buildRecommendations(temp: number, persons: Person[]): string[] {
   const rec: string[] = []
-  const lvl = tempLevel(temp)
 
-  if (lvl === 'caution') {
-    rec.push('温度が高めです。社員を休憩させるか、水分を取らせる必要があります。')
-  } else if (lvl === 'danger') {
-    rec.push('温度が高いので社員を休憩させるか、水分を取らせる必要があります。')
+  // const lvl = tempLevel(temp)
+  // if (lvl === 'caution') rec.push('温度が高いので、従業員に水分や休息をとらせる必要があります。')
+  // if (lvl === 'danger') rec.push('熱中症の危険があります。今すぐ休息をとらせる必要があります。')
+
+  function getAction(p: Person): string | null {
+    // 1. Emergency Status (Body)
+    // 1. Emergency Status (Body)
+    const em = (p.emergency_status ?? '').toUpperCase()
+    if (em.includes('FALL') || em.includes('転倒')) return `${p.name}さんが転倒を検知しました。今すぐに${p.name}さんのもとへ向かってください。`
+    if (em.includes('STAGGER') || em.includes('ふらつき')) return `${p.name}さんがふらついています。水分補給と休憩を取らせてください。`
+
+    // 2. Status (Face)
+    const st = (p.status ?? '').toUpperCase()
+    if (st.includes('SLEEP') || st.includes('居眠り')) return `${p.name}さんが居眠りしている可能性があります。危険なため、作業を中止させ今すぐに起こしに行ってください。`
+    if (st.includes('DROWSY') || st.includes('眠気')) return `${p.name}さんに眠気がある可能性があります。注意してください。`
+    if (st.includes('YAWN') || st.includes('あくび')) return `${p.name}さんの集中が切れているため、ストレッチまたは水分補給などを行ってください。`
+
+    // 3. その他異常
+    if ((em && em !== '無' && em !== 'NORMAL') || (st && st !== '正常' && st !== 'NORMAL')) {
+      return `${p.name} : 異常検出 (${em || st}) - 確認してください`
+    }
+    return null
   }
 
-  // 異常が起きている場合は「誰か」を出す（ログ優先、なければ緊急ステータスから推定）
-  const uniq = (xs: string[]) => Array.from(new Set(xs)).filter(Boolean)
-
-  const fallNamesFromLogs = logs.filter(l => l.kind === 'FALL').map(l => l.person_name)
-  const focusNamesFromLogs = logs.filter(l => l.kind === 'FOCUS').map(l => l.person_name)
-
-  const fallNamesFromPersons = persons.filter(p => (p.emergency_status ?? '').includes('転倒')).map(p => p.name)
-  const focusNamesFromPersons = persons.filter(p => (p.emergency_status ?? '').includes('集中')).map(p => p.name)
-
-  const fallNames = uniq([...fallNamesFromLogs, ...fallNamesFromPersons])
-  const focusNames = uniq([...focusNamesFromLogs, ...focusNamesFromPersons])
-
-  if (focusNames.length > 0) {
-    rec.push(`集中力が低下している可能性がある社員がいます（${focusNames.join('、')}）。気を付けて下さい。`)
+  for (const p of persons) {
+    const act = getAction(p)
+    if (act) {
+      rec.push(act)
+    }
   }
 
-  if (fallNames.length > 0) {
-    rec.push(`転倒を検知しました（${fallNames.join('、')}）。すぐに社員のもとへ向かい確認を行ってください。`)
-  }
-
-  if (rec.length === 0) rec.push('現時点で緊急の推奨行動はありません。')
+  if (!rec.length) rec.push('現時点で緊急の推奨行動はありません。')
   return rec
 }
 
+function LogRow({ l, onClick }: { l: LogItem; onClick: () => void }) {
+  const kind = (l.kind ?? 'INFO').toUpperCase()
+  const cls =
+    kind === 'FALL' || kind === 'SLEEP' ? 'logRow fall' :
+      kind === 'FOCUS' || kind === 'YAWN' || kind === 'DROWSY' ? 'logRow focus' :
+        kind === 'STAGGER' || kind === 'POSTURE' ? 'logRow warn' :
+          'logRow info'
 
-function PhotoBox({ person, onClick }: { person: Person; onClick: () => void }) {
-  const src = person.photo_url ?? null
   return (
-    <button className="photoBtn" onClick={onClick} title="クリックすると個人ログを表示します">
-      {src ? (
-        <img className="photoImg" src={src} alt={`${person.name}の写真`} />
-      ) : (
-        <div className="photoPlaceholder">写真</div>
-      )}
+    <button className={cls} onClick={onClick}>
+      <div className="logMsg">{l.message}</div>
     </button>
   )
 }
 
-function PersonCard({ person, onPhotoClick }: { person: Person; onPhotoClick: () => void }) {
-  return (
-    <div className="personCard">
-      <div className="personName">{person.name}</div>
-      {/* 要件：名前の下の顔写真部分をクリックするとログ表示 */}
-      <PhotoBox person={person} onClick={onPhotoClick} />
-      <div className="personMeta">
-        <div>ステータス：{person.status}</div>
-        <div>緊急ステータス：{person.emergency_status}</div>
-      </div>
-    </div>
-  )
-}
+function PersonCard({ p, onPhotoClick }: { p: Person; onPhotoClick: () => void }) {
+  const emer = (p.emergency_status ?? '')
+  const warn = emer.includes('転倒') || emer.includes('危険') || emer.includes('居眠り')
+  const src = resolveSnapshotUrl(p.photo_url ?? null)
 
-function LogList({ logs, onPick }: { logs: LogItem[]; onPick: (l: LogItem) => void }) {
   return (
-    <div className="logList">
-      {logs.length === 0 && <div className="muted">ログはありません。</div>}
-      {logs.map((l) => (
-        <button key={l.id} className={`logRow ${l.kind.toLowerCase()}`} onClick={() => onPick(l)}>
-          <div className="logMsg">{l.message}</div>
-        </button>
-      ))}
+    <div className={'personCard' + (warn ? ' personWarn' : '')}>
+      <div className="personName">{p.name}</div>
+      <button className="photo" onClick={onPhotoClick} title="クリックすると個人ログを表示します">
+        {src ? <img className="photoImg" src={src} alt={p.name} /> : <div className="photoInner"></div>}
+      </button>
+      <div className="meta">
+        <div>ステータス：{p.status}</div>
+        <div>緊急ステータス：{(p.emergency_status === '無' || !p.emergency_status) ? '異常なし' : p.emergency_status}</div>
+      </div>
     </div>
   )
 }
@@ -87,6 +93,7 @@ function LogList({ logs, onPick }: { logs: LogItem[]; onPick: (l: LogItem) => vo
 export default function App() {
   const [state, setState] = useState<StateResponse | null>(null)
   const [logs, setLogs] = useState<LogItem[]>([])
+  const [loading, setLoading] = useState(true)
 
   const [personModalOpen, setPersonModalOpen] = useState(false)
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null)
@@ -95,142 +102,220 @@ export default function App() {
   const [logModalOpen, setLogModalOpen] = useState(false)
   const [selectedLog, setSelectedLog] = useState<LogItem | null>(null)
 
+  const temp = state?.temperature_c ?? 0
+  const hum = state?.humidity_pct ?? 0
+  const allPersons = useMemo(() => [...(state?.persons_area_a ?? []), ...(state?.persons_area_b ?? [])], [state])
+  const recs = useMemo(() => buildRecommendations(temp, allPersons), [temp, allPersons])
+
+  const refresh = async () => {
+    try {
+      const [s, l] = await Promise.all([getState(), getLogs()])
+      setState(s)
+      setLogs(l)
+      setLoading(false)
+    } catch {
+      // keep previous; show loading only first time
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    let alive = true
-    ;(async () => {
-      const st = await getState()
-      const lg = await getAllLogs()
-      if (!alive) return
-      setState(st)
-      // newest first
-      setLogs([...lg].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)))
-    })()
+    refresh()
+
+    // WebSocket (real-time) — fallback to polling if not available.
+    const wsUrl = apiBase().replace('http://', 'ws://').replace('https://', 'wss://') + '/ws/events'
+    let ws: WebSocket | null = null
+    let pingTimer: number | null = null
+    let pollTimer: number | null = null
+
+    const startPolling = () => {
+      if (pollTimer) return
+      pollTimer = window.setInterval(refresh, 1500)
+    }
+
+    try {
+      ws = new WebSocket(wsUrl)
+      ws.onopen = () => {
+        // keepalive ping
+        pingTimer = window.setInterval(() => {
+          try { ws?.send('ping') } catch { }
+        }, 15000)
+      }
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data)
+          if (msg.type === 'snapshot') {
+            const st = msg.data?.state as StateResponse
+            const evs = msg.data?.events as LogItem[]
+            if (st) setState(st)
+            if (evs) setLogs(evs)
+          } else if (msg.type === 'person_state') {
+            // Merge into state
+            setState((prev) => {
+              if (!prev) return prev
+              const d = msg.data
+              const p: Person = { id: d.person_id, name: d.person_name, status: d.status, emergency_status: d.emergency_status, photo_url: d.photo_url }
+              const area = (d.area ?? ((p.id % 2 === 1) ? 'A' : 'B')) as 'A' | 'B'
+              const up = (arr: Person[]) => {
+                const idx = arr.findIndex(x => x.id === p.id)
+                if (idx >= 0) {
+                  const copy = arr.slice()
+                  copy[idx] = { ...copy[idx], ...p }
+                  return copy
+                }
+                return [...arr, p]
+              }
+              return {
+                ...prev,
+                persons_area_a: area === 'A' ? up(prev.persons_area_a) : prev.persons_area_a.filter(x => x.id !== p.id),
+                persons_area_b: area === 'B' ? up(prev.persons_area_b) : prev.persons_area_b.filter(x => x.id !== p.id),
+              }
+            })
+          } else if (msg.type === 'event') {
+            const e = msg.data as LogItem
+            setLogs((prev) => [e, ...prev].slice(0, 300))
+          } else if (msg.type === 'environment') {
+            setState((prev) => prev ? { ...prev, temperature_c: msg.data.temperature_c, humidity_pct: msg.data.humidity_pct } : prev)
+          }
+        } catch {
+          // ignore
+        }
+      }
+      ws.onerror = () => { startPolling() }
+      ws.onclose = () => { startPolling() }
+    } catch {
+      startPolling()
+    }
+
+    // also poll occasionally to keep state consistent even with WS
+    startPolling()
+
     return () => {
-      alive = false
+      if (pingTimer) window.clearInterval(pingTimer)
+      if (pollTimer) window.clearInterval(pollTimer)
+      try { ws?.close() } catch { }
     }
   }, [])
-
-  const allPersons = useMemo(() => {
-    if (!state) return []
-    return [...state.persons_area_a, ...state.persons_area_b]
-  }, [state])
-
-  const recs = useMemo(() => {
-    if (!state) return ['読み込み中...']
-    return recommendations(state.temperature_c, logs, allPersons)
-  }, [state, logs, allPersons])
-
-  const level = state ? tempLevel(state.temperature_c) : 'normal'
-
-  const openPersonLogs = async (p: Person) => {
-    setSelectedPerson(p)
-    const pl = await getPersonLogs(p.id)
-    setPersonLogs([...pl].sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1)))
-    setPersonModalOpen(true)
-  }
 
   const openLogDetail = (l: LogItem) => {
     setSelectedLog(l)
     setLogModalOpen(true)
   }
 
+  const openPersonLogs = async (p: Person) => {
+    setSelectedPerson(p)
+    try {
+      const pl = await getPersonLogs(p.id)
+      setPersonLogs(pl)
+    } catch {
+      setPersonLogs(logs.filter(x => x.person_id === p.id))
+    }
+    setPersonModalOpen(true)
+  }
+
+  const personsA = state?.persons_area_a ?? []
+  const personsB = state?.persons_area_b ?? []
+
   return (
     <div className="page">
       <div className="title">管理者ダッシュボード</div>
 
       <div className="layout">
-        {/* LEFT COLUMN */}
+        {/* LEFT */}
         <div className="leftCol">
-          <div className={`card tempCard ${level}`}>
-            <div className="cardLabel">温度</div>
-            <div className="bigValue">{state ? state.temperature_c.toFixed(1) : '--'}°C</div>
-            <div className="smallNote">
-              {level === 'normal' && '平常（30度以下）'}
-              {level === 'caution' && '注意（30〜35度）'}
-              {level === 'danger' && '危険（35度以上）'}
+          <div className={'box ' + tempBg(temp)}>
+            <div className="boxText">
+              {/* 温度部分：ここを div で囲んで改行禁止(nowrap)にします */}
+              <div style={{ whiteSpace: 'nowrap' }}>
+                温度：{loading ? '--' : temp.toFixed(1)}℃
+              </div>
+
+              {/* メッセージ部分：span を div に変更します */}
+              <div style={{ marginLeft: '30px', fontSize: '30px', fontWeight: 'normal' }}>
+                {temp < 30 ? '異常なし' :
+                  temp < 35 ? '注意。適度に水分補給を補給してください。' :
+                    '危険。全従業員水分補給及び休憩を取ってください‼'}
+              </div>
             </div>
           </div>
 
-          <div className="card">
-            <div className="cardLabel">湿度</div>
-            <div className="bigValue">{state ? `${state.humidity_pct.toFixed(0)}%` : '--'}</div>
+          <div className="box">
+            <div className="boxText">
+              <div style={{ whiteSpace: 'nowrap' }}>
+                湿度：{loading ? '--' : hum.toFixed(0)}%
+              </div>
+              <div style={{ marginLeft: '30px', fontSize: '30px', fontWeight: 'normal' }}>
+                {hum < 40 ? '加湿器を稼働し、こまめな水分補給をしてください。' :
+                  hum > 60 ? '除湿・換気を行い、休憩を増やしてください。熱中症に注意してください‼' :
+                    '異常なし'}
+              </div>
+            </div>
           </div>
 
-          <div className="card grow">
-            <div className="cardLabel">推奨行動</div>
-            <ul className="recList">
+          <div className="bigBox">
+            <div className="bigTitle">推奨行動</div>
+            <ul className="rec">
               {recs.map((r, i) => <li key={i}>{r}</li>)}
             </ul>
           </div>
 
-          {/* 要件：左下ログ部分はクリックで写真等が表示 */}
-          <div className="card logCard">
-            <div className="cardLabel">ログ</div>
-            <LogList logs={logs} onPick={openLogDetail} />
-          </div>
+
         </div>
 
-        {/* RIGHT COLUMN */}
+        {/* RIGHT */}
         <div className="rightCol">
           <div className="area">
-            <div className="areaTitle">エリアA</div>
-            <div className="peopleRow">
-              {state?.persons_area_a.map((p) => (
-                <PersonCard key={p.id} person={p} onPhotoClick={() => openPersonLogs(p)} />
+            <div className="areaTitle">現在の状況</div>
+            <div className="areaInner">
+              {allPersons.length === 0 ? <div className="muted">データ待ち...</div> : null}
+              {allPersons.map(p => (
+                <PersonCard key={p.id} p={p} onPhotoClick={() => openPersonLogs(p)} />
               ))}
             </div>
           </div>
 
           <div className="area">
-            <div className="areaTitle">エリアB</div>
-            <div className="peopleRow compact">
-              {state?.persons_area_b.map((p) => (
-                <div key={p.id} className="miniSlot">
-                  <button className="miniPhoto" onClick={() => openPersonLogs(p)} title="クリックすると個人ログを表示します">
-                    <span className="miniText">写真</span>
-                  </button>
-                </div>
-              ))}
+            <div className="areaTitle">ログ</div>
+            <div className="logList">
+              {logs.length === 0 ? <div className="muted">ログはまだありません。</div> : null}
+              {logs.map(l => <LogRow key={l.id} l={l} onClick={() => openLogDetail(l)} />)}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Person logs modal */}
       <Modal
         title={selectedPerson ? `${selectedPerson.name} のログ` : '個人ログ'}
-        isOpen={personModalOpen}
+        open={personModalOpen}
         onClose={() => setPersonModalOpen(false)}
       >
-        <div className="modalSection">
-          <div className="muted">※「写真」部分をクリックすると、この個人のログ一覧が表示されます。</div>
+        <div className="muted">※ログをクリックすると写真が表示されます。</div>
+        <div className="logList">
+          {personLogs.length === 0 ? <div className="muted">ログはまだありません。</div> : null}
+          {personLogs.map(l => <LogRow key={l.id} l={l} onClick={() => openLogDetail(l)} />)}
         </div>
-        <LogList logs={personLogs} onPick={openLogDetail} />
       </Modal>
 
-      {/* Log detail modal */}
       <Modal
-        title={selectedLog ? `ログ詳細（${selectedLog.kind}）` : 'ログ詳細'}
-        isOpen={logModalOpen}
+        title={selectedLog ? 'ログ詳細' : 'ログ詳細'}
+        open={logModalOpen}
         onClose={() => setLogModalOpen(false)}
       >
         {!selectedLog ? null : (
-          <div className="logDetail">
-            <div className="logDetailMsg">{selectedLog.message}</div>
-            <div className="snapWrap">
-              {selectedLog.snapshot_url ? (
-                <img
-                  className="snapImg"
-                  src={selectedLog.snapshot_url.startsWith('http') ? selectedLog.snapshot_url : `http://localhost:8000${selectedLog.snapshot_url}`}
-                  alt="ログ発生時の写真"
-                />
+          <div>
+            <div className="detailMsg">{selectedLog.message}</div>
+            <div className="snap">
+              {resolveSnapshotUrl(selectedLog.snapshot_url) ? (
+                <img className="snapImg" src={resolveSnapshotUrl(selectedLog.snapshot_url)!} alt="ログ発生時の写真" />
               ) : (
-                <div className="snapPlaceholder">写真は未登録です</div>
+                <div className="muted">写真は未登録です。</div>
               )}
             </div>
           </div>
         )}
       </Modal>
+
+      <div className="footerMuted">API: {apiBase()}</div>
     </div>
   )
 }

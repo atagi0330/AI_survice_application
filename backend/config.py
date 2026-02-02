@@ -11,11 +11,10 @@ POSE_MODEL_PATH = 'yolo26m-pose.pt'
 # 転倒: ほぼ即時に危険判定
 DURATION_LIMIT_FALL = 0.3       
 
-# 悪い姿勢: 長時間続いたら「ストレッチ推奨」
 DURATION_LIMIT_POSTURE = 5.0    
 
 # ふらつき: 一定時間続いたら「休憩・水分補給推奨」
-DURATION_LIMIT_STAGGER = 1.0    
+DURATION_LIMIT_STAGGER = 0.5    
 
 # --- ふらつき検知 (高度版) パラメータ ---
 # 過去何フレームを解析するか (30fpsなら30=約1秒)

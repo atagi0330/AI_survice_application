@@ -107,6 +107,25 @@ def fetch_data():
             print(f"  VPD      : {metrics['vpd']:.2f} kPa")
             print(f"  絶対湿度 : {metrics['abs_hum']:.1f} g/m^3")
             print("")
+
+            # ★ 【追加】取得した温湿度をバックエンドAPIサーバーに送信する
+            try:
+                # サーバーURL (ローカル環境)
+                api_url = "http://127.0.0.1:8000/update/environment"
+                payload = {
+                    "temp": temp,
+                    "hum": hum
+                }
+                # POST送信 (タイムアウト設定付き)
+                res_post = requests.post(api_url, json=payload, timeout=5)
+                if res_post.status_code == 200:
+                    print("  -> バックエンドサーバーへの送信に成功しました。")
+                else:
+                    print(f"  -> 送信失敗: {res_post.status_code}")
+            except Exception as se:
+                print(f"  -> 送信エラー(サーバーが起動していない可能性があります): {se}")
+            
+            print("")
             
     except Exception as e:
         print(f"エラーが発生しました: {e}")

@@ -2,74 +2,96 @@ import subprocess
 import sys
 import time
 import os
-import signal
 
 def main():
     # ==========================================
-    # ★ 同時起動するファイル名
+    # ★ 同時起動するファイル構成
     # ==========================================
-    # 1. AI統合システム (カメラ映像: 転倒/ふらつき/顔認証)
-    script_camera = "main_integrated.py"
+    # 1. API中継サーバー (FrontendとBackendの架け橋)
+    script_server = "server.py"
     
-    # 2. SwitchBot 温湿度監視 (コンソール出力)
+    # 2. SwitchBot 温湿度監視 (環境データ取得)
     script_sensor = "switchbot_heat_stroke.py"
 
+    # 3. AI統合システム (カメラ映像: 転倒/ふらつき/顔認証/居眠り)
+    script_camera = "main_integrated.py"
+
+    # 4. フロントエンド
+    frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "frontend")
+
     # ファイルの存在確認
-    if not os.path.exists(script_camera):
-        print(f"エラー: {script_camera} が見つかりません。")
-        print("直前に作成した統合コードを 'main_integrated.py' という名前で保存してください。")
-        return
+    scripts = [script_server, script_sensor, script_camera]
+    for script in scripts:
+        if not os.path.exists(script):
+            print(f"エラー: {script} が見つかりません。")
+            return
     
-    if not os.path.exists(script_sensor):
-        print(f"エラー: {script_sensor} が見つかりません。")
-        print("SwitchBotのコードを 'switchbot_heat_stroke.py' という名前で保存してください。")
-        return
+    if not os.path.exists(frontend_dir):
+        print(f"警告: フロントエンドディレクトリが見つかりません: {frontend_dir}")
+        frontend_dir = None
 
     print("==================================================")
     print("   AI 工場安全管理システム & 環境モニタリング")
-    print("           システムを一括起動します")
+    print("        フロントエンド + バックエンド一括起動")
     print("==================================================")
     print("終了するには、この画面で [Ctrl+C] を押してください。")
     print("--------------------------------------------------")
-    time.sleep(2)
-
+    
     processes = []
 
     try:
-        # --- 1. SwitchBot センサー監視 (バックグラウンド) ---
-        print(f"起動中: {script_sensor} (環境センサ)...")
-        # SwitchBotは通信待ちがあるため先に起動
+        # --- 0. フロントエンドの起動 ---
+        if frontend_dir:
+            print("0/4 起動中: フロントエンド (Vite)...")
+            p_frontend = subprocess.Popen(
+                ["npm", "run", "dev"],
+                cwd=frontend_dir,
+                shell=True
+            )
+            processes.append(p_frontend)
+            time.sleep(3)  # Viteの起動を待つ
+
+        # --- 1. APIサーバーの起動 ---
+        print(f"1/4 起動中: {script_server} (APIサーバー)...")
+        p_server = subprocess.Popen([sys.executable, script_server])
+        processes.append(p_server)
+        time.sleep(2) # サーバーの立ち上がりを待つ
+
+        # --- 2. SwitchBot センサー監視の起動 ---
+        print(f"2/4 起動中: {script_sensor} (環境センサ)...")
         p_sensor = subprocess.Popen([sys.executable, script_sensor])
         processes.append(p_sensor)
-        
-        time.sleep(1) # ログが混ざらないように少し待機
+        time.sleep(1)
 
-        # --- 2. AI カメラシステム (メイン画面) ---
-        print(f"起動中: {script_camera} (AIカメラ)...")
+        # --- 3. AI カメラシステムの起動 ---
+        print(f"3/4 起動中: {script_camera} (AIカメラ映像解析)...")
         p_camera = subprocess.Popen([sys.executable, script_camera])
         processes.append(p_camera)
 
-        # 両方のプロセスが終了するのを待機
-        # (片方が落ちても、もう片方は動き続けます)
+        print("\n>>> すべてのシステムが正常に起動しました。")
+        print(">>> ブラウザで http://localhost:5173/ を開いてください。")
+
+        # プロセスが終了するのを待機
+        # メイン画面であるカメラシステムが閉じられたら終了とみなす
         p_camera.wait()
-        p_sensor.wait()
 
     except KeyboardInterrupt:
-        print("\n\n!!! システム停止信号を受信しました !!!")
+        print("\n\n!!! システム停止信号(Ctrl+C)を受信しました !!!")
+    except Exception as e:
+        print(f"\n予期せぬエラーが発生しました: {e}")
+    finally:
         print("すべてのプロセスを安全に終了しています...")
-        
-        # 起動したプロセスをすべて強制終了
+        # 起動したすべてのプロセスを確実に停止させる
         for p in processes:
             try:
-                # Windows用強制終了コマンド
-                if os.name == 'nt':
+                if os.name == 'nt': # Windowsの場合
                     subprocess.call(['taskkill', '/F', '/T', '/PID', str(p.pid)])
-                else:
+                else: # Mac/Linuxの場合
                     p.terminate()
             except Exception:
                 pass
         
-        print("システムを完全に停止しました。")
+        print("システムを完全に停止しました。お疲れ様でした。")
 
 if __name__ == "__main__":
     main()

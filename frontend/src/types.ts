@@ -8,12 +8,12 @@ export type Person = {
 
 export type LogItem = {
   id: string
-  timestamp: string // ISO
+  timestamp: string
   person_id: number
   person_name: string
   message: string
   snapshot_url?: string | null
-  kind: 'FALL' | 'FOCUS' | 'INFO'
+  kind: string // FALL, FOCUS, INFO ... (拡張可)
 }
 
 export type StateResponse = {

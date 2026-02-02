@@ -11,6 +11,11 @@ class PersonState:
         self.start_time = time.time()
         self.status_color = (0, 255, 0) # Green
         self.action_message = "Normal"
+        self.status_color = (0, 255, 0) # Green
+        self.action_message = "Normal"
+        # 修正: status属性を追加
+        self.status = "Normal"
+        self.msg = "Normal"
         self.alert_active = False
 
         # ふらつき検知用の履歴
@@ -32,11 +37,14 @@ class PersonState:
                 self.state = "Fall"
                 self.status_color = (0, 0, 255) # Red
                 self.action_message = "WARNING: FALL DETECTED!"
+                self.status = "danger"
+                self.msg = "FALL"
                 self.alert_active = True
                 return
         else:
             self.t_fall_start = None
 
+        # 2. ふらつき判定
         # 2. ふらつき判定
         if is_stagger:
             if self.t_stagger_start is None: self.t_stagger_start = now
@@ -44,6 +52,8 @@ class PersonState:
                 self.state = "Stagger"
                 self.status_color = (0, 165, 255) # Orange
                 self.action_message = "Alert: Please take a rest."
+                self.status = "warning"
+                self.msg = "STAGGER"
                 self.alert_active = True
                 return
         else:
@@ -56,6 +66,8 @@ class PersonState:
                 self.state = "BadPosture"
                 self.status_color = (255, 100, 0) # Orange
                 self.action_message = "Advice: Let's stretch!"
+                self.status = "caution"
+                self.msg = "POSTURE"
                 self.alert_active = False 
                 return
         else:
@@ -65,6 +77,8 @@ class PersonState:
         self.state = "Normal"
         self.status_color = (0, 255, 0)
         self.action_message = "Normal"
+        self.status = "normal"
+        self.msg = "Normal"
         self.alert_active = False
 
 

@@ -1,23 +1,16 @@
 import React, { useEffect } from 'react'
 
-type Props = {
-  title: string
-  isOpen: boolean
-  onClose: () => void
-  children: React.ReactNode
-}
+export default function Modal(props: { title: string; open: boolean; onClose: () => void; children: React.ReactNode }) {
+  const { title, open, onClose, children } = props
 
-export default function Modal({ title, isOpen, onClose, children }: Props) {
   useEffect(() => {
-    if (!isOpen) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [isOpen, onClose])
+  }, [open, onClose])
 
-  if (!isOpen) return null
+  if (!open) return null
 
   return (
     <div className="modalOverlay" role="dialog" aria-modal="true" onMouseDown={onClose}>
