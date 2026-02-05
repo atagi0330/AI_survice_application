@@ -22,6 +22,7 @@
 
 ### Backend（FastAPI）
 
+```powershell
 cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
@@ -34,6 +35,8 @@ http://localhost:8000/health
 http://localhost:8000/api/state
 
 http://localhost:8000/api/logs
+
+---
 
 ### Frontend（Vite + React）
 cd frontend
