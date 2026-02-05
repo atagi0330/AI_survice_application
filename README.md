@@ -35,6 +35,7 @@ http://localhost:8000/health
 http://localhost:8000/api/state
 
 http://localhost:8000/api/logs
+```
 
 ---
 
