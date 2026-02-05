@@ -40,14 +40,16 @@ http://localhost:8000/api/logs
 ---
 
 ### Frontend（Vite + React）
+```powershell
 cd frontend
 npm install
 npm run dev
 http://localhost:5173
+```
 
 ---
 
-###API（フロント利用）
+### API（フロント利用）
 GET /health
 
 GET /api/state
