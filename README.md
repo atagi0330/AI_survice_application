@@ -36,13 +36,15 @@ http://localhost:8000/api/state
 
 http://localhost:8000/api/logs
 
-Frontend（Vite + React）
+### Frontend（Vite + React）
 cd frontend
 npm install
 npm run dev
 http://localhost:5173
 
-API（フロント利用）
+---
+
+###API（フロント利用）
 GET /health
 
 GET /api/state
@@ -53,7 +55,7 @@ GET /api/person/{personId}/logs
 
 WS /ws/events（リアルタイム更新）
 
-データ表示仕様
+### データ表示仕様
 温度表示
 温度カードの色は現在温度から自動判定
 
@@ -63,7 +65,7 @@ temp <= 30 → 平常（緑）
 
 temp >= 35 → 危険（赤）
 
-推奨行動
+### 推奨行動
 温度帯 + 最新ログ種別（FALL / STAGGER / DROWSY / SLEEP など）に応じて文言を自動生成
 
 人物イベントがある場合は対象者名を文中に表示
@@ -73,7 +75,9 @@ temp >= 35 → 危険（赤）
 
 snapshot_url が無い場合はテキスト情報のみ表示
 
-補足
+---
+
+###補足
 写真はログの snapshot_url があれば表示されます（例：/static/snapshots/...）。
 
 個人の顔写真を表示したい場合は、Person の photo_url を設定してください。
